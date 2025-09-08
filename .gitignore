@@ -8,3 +8,6 @@ cache/
 
 # PID file
 server.pid
+
+# Log files
+server.log
