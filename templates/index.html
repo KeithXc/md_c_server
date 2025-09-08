@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Files</title>
+</head>
+<body>
+    <div class="container">
+        <h1>Files</h1>
+        <div class="tree-container">
+            <ul>
+                {{FILE_LIST}}
+            </ul>
+        </div>
+    </div>
+    <script>
+        document.querySelectorAll('.tree-dir').forEach(function(dir) {
+            dir.addEventListener('click', function(e) {
+                e.preventDefault();
+                this.parentElement.classList.toggle('expanded');
+            });
+        });
+    </script>
+</body>
+</html>
