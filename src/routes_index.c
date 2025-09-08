@@ -162,7 +162,11 @@ static void list_files_recursive(const char *base_path, const char *rel_path, ch
         }
 
         if (S_ISDIR(st.st_mode)) {
-            append_string(html_buffer, capacity, "<li><details open><summary>");
+            char temp_buffer[PATH_MAX + 64];
+            // Create a unique ID for the details element based on its path
+            snprintf(temp_buffer, sizeof(temp_buffer), "<li><details id=\"details-%s\" open><summary>", full_rel_path);
+            append_string(html_buffer, capacity, temp_buffer);
+            
             append_string(html_buffer, capacity, entry->d_name);
             append_string(html_buffer, capacity, "</summary>");
             

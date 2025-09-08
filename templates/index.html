@@ -28,11 +28,45 @@
         </div>
     </div>
     <script>
-        document.querySelectorAll('.tree-dir').forEach(function(dir) {
-            dir.addEventListener('click', function(e) {
-                e.preventDefault();
-                this.parentElement.classList.toggle('expanded');
-            });
+        document.addEventListener('DOMContentLoaded', () => {
+            const STORAGE_KEY = 'treeState';
+
+            // --- State Restoration ---
+            // On page load, try to restore the state from sessionStorage
+            try {
+                const savedState = JSON.parse(sessionStorage.getItem(STORAGE_KEY));
+                if (savedState) {
+                    savedState.forEach(item => {
+                        const element = document.getElementById(item.id);
+                        if (element) {
+                            element.open = item.isOpen;
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error("Failed to parse tree state from sessionStorage", e);
+                sessionStorage.removeItem(STORAGE_KEY);
+            }
+
+            // --- State Saving ---
+            // Add a single event listener to the container to handle all clicks
+            const treeContainer = document.querySelector('.tree-container');
+            if (treeContainer) {
+                treeContainer.addEventListener('click', (event) => {
+                    // We only care about clicks on <summary> elements, which toggle the <details>
+                    if (event.target.tagName === 'SUMMARY') {
+                        // Use a small timeout to allow the 'open' attribute to update
+                        setTimeout(() => {
+                            const allDetails = document.querySelectorAll('details');
+                            const currentState = Array.from(allDetails).map(details => ({
+                                id: details.id,
+                                isOpen: details.open
+                            }));
+                            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(currentState));
+                        }, 0);
+                    }
+                });
+            }
         });
     </script>
 </body>

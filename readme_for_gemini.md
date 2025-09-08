@@ -43,6 +43,7 @@ The project is organized into the following directories:
     -   The homepage (`/`) dynamically generates a file tree based on the contents of the `md/` directory.
     -   Directory listings are now interactive and default to an expanded (open) state.
     -   The default list item bullets have been removed via CSS for a cleaner look, leaving only the interactive disclosure triangles.
+    -   **State Preservation**: The expanded/collapsed state of the file tree is preserved within a browser session using `sessionStorage`. When a user navigates to a post and then returns, their folder visibility preferences are restored.
 5.  **Robust Control Scripts**: `run.sh` now ensures a clean build and restart by clearing cache and killing any old "zombie" server processes before compiling and running. `stop.sh` reliably terminates all server processes.
 
 ## 5. How to Build and Run
