@@ -1,7 +1,7 @@
 #!/bin/bash
 # This script stops all instances of the md_web_server.
 
-SERVER_NAME="md_web_server"
+SERVER_NAME="md_c_server"
 PID_FILE="server.pid"
 
 echo "Stopping all '$SERVER_NAME' processes..."

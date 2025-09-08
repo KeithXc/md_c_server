@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 # Define the project name and the executable name
 set(PROJECT_NAME c_markdown_blog)
-set(EXEC_NAME md_web_server)
+set(EXEC_NAME md_c_server)
 project(${PROJECT_NAME} C)
 
 set(CMAKE_C_STANDARD 11)
@@ -20,4 +20,4 @@ add_executable(${EXEC_NAME} ${SOURCE_FILES})
 # Find and link required libraries
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
-target_link_libraries(${EXEC_NAME} PRIVATE cmark rt ${CMAKE_THREAD_LIibs_INIT} ${ZLIB_LIBRARIES})
+target_link_libraries(${EXEC_NAME} PRIVATE cmark rt ${CMAKE_THREAD_LIBS_INIT} ${ZLIB_LIBRARIES})

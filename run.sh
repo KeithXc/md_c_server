@@ -21,8 +21,8 @@ make
 cd ..
 
 echo "" # Add a newline for cleaner output
-echo "Starting md__web_server..."
-nohup ./bin/md_web_server > server.log 2>&1 &
+echo "Starting md_c_server..."
+nohup ./bin/md_c_server > server.log 2>&1 &
 PID=$!
 echo $PID > server.pid
 echo "Server started with PID: $PID"
