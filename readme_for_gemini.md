@@ -34,9 +34,16 @@ The project is organized into the following directories:
 ## 4. Current Status & Features
 
 1.  **Markdown to HTML**: Converts `.md` files to HTML on the fly using `cmark`.
-2.  **Gzip Compression**: Compresses the generated HTML with `zlib` before sending.
-3.  **Caching**: Caches the compressed HTML in the `cache/` directory. The cache is invalidated automatically if the source `.md` file is modified.
-4.  **Control Scripts**: `run.sh` compiles and starts the server, while `stop.sh` terminates it.
+2.  **Gzip Compression**: Compresses all HTML responses with `zlib` before sending.
+3.  **Full Caching Support**:
+    -   **Posts & Index**: Both post pages and the main index page support `ETag` and `Last-Modified` headers.
+    -   **Conditional Requests**: The server correctly handles `If-None-Match` and `If-Modified-Since` headers, returning a `304 Not Modified` response for unchanged content to save bandwidth.
+    -   **File-based Cache**: Generated content is cached in the `cache/` directory to reduce CPU load on subsequent requests. The cache is automatically invalidated if source files are modified.
+4.  **Dynamic File Tree**:
+    -   The homepage (`/`) dynamically generates a file tree based on the contents of the `md/` directory.
+    -   Directory listings are now interactive and default to an expanded (open) state.
+    -   The default list item bullets have been removed via CSS for a cleaner look, leaving only the interactive disclosure triangles.
+5.  **Robust Control Scripts**: `run.sh` now ensures a clean build and restart by clearing cache and killing any old "zombie" server processes before compiling and running. `stop.sh` reliably terminates all server processes.
 
 ## 5. How to Build and Run
 

@@ -16,29 +16,24 @@ void serve_index(struct mg_connection *c, struct mg_http_message *hm) {
     char md_dir_path[PATH_MAX];
     snprintf(md_dir_path, sizeof(md_dir_path), "%s/md", g_project_root);
 
-    // 1. Determine the "version" of the index by finding the latest modification time.
     time_t latest_mtime = get_latest_mtime_in_dir(md_dir_path);
     if (latest_mtime == 0) {
         mg_http_reply(c, 200, "Content-Type: text/html; charset=utf-8\r\n", "<h1>No markdown files found.</h1>");
         return;
     }
 
-    // 2. Generate ETag from the latest modification time.
     char etag[64];
     snprintf(etag, sizeof(etag), "\"%lx\"", (unsigned long)latest_mtime);
 
-    // 3. Handle conditional requests. If a 304 is sent, we're done.
     if (handle_conditional_request(c, hm, etag, latest_mtime)) {
         return;
     }
 
-    // 4. Check for a cached version of the index.
     char cache_path[PATH_MAX];
     snprintf(cache_path, sizeof(cache_path), "%s/cache/__index.html.gz", g_project_root);
     
     struct stat st;
     if (stat(cache_path, &st) == 0 && st.st_mtime >= latest_mtime) {
-        // Cache is fresh, serve it directly.
         size_t compressed_size;
         char *compressed_content = read_file_content(cache_path, &compressed_size);
         if (compressed_content) {
@@ -65,14 +60,12 @@ void serve_index(struct mg_connection *c, struct mg_http_message *hm) {
         }
     }
 
-    // 5. Cache is stale or missing. Regenerate, compress, cache, and serve.
     char *html_content = generate_index_html();
     if (!html_content) {
         mg_http_reply(c, 500, "", "Failed to generate index.");
         return;
     }
 
-    // Compress it
     z_stream strm = {0};
     strm.zalloc = Z_NULL;
     strm.zfree = Z_NULL;
@@ -93,14 +86,12 @@ void serve_index(struct mg_connection *c, struct mg_http_message *hm) {
     deflateEnd(&strm);
     free(html_content);
 
-    // Save to cache
     FILE *fp = fopen(cache_path, "wb");
     if (fp) {
         fwrite(compressed_content, 1, compressed_size, fp);
         fclose(fp);
     }
 
-    // Serve it
     char last_modified_str[100];
     struct tm *tm = gmtime(&latest_mtime);
     strftime(last_modified_str, sizeof(last_modified_str), "%a, %d %b %Y %H:%M:%S GMT", tm);
@@ -128,7 +119,6 @@ void serve_index(struct mg_connection *c, struct mg_http_message *hm) {
 static void append_string(char **buffer, size_t *capacity, const char *str) {
     size_t current_len = strlen(*buffer);
     size_t str_len = strlen(str);
-    // Corrected condition: check if we have enough space for the new string AND the null terminator.
     while (current_len + str_len + 1 > *capacity) {
         *capacity *= 2;
         *buffer = realloc(*buffer, *capacity);
@@ -172,7 +162,7 @@ static void list_files_recursive(const char *base_path, const char *rel_path, ch
         }
 
         if (S_ISDIR(st.st_mode)) {
-            append_string(html_buffer, capacity, "<li><details><summary>");
+            append_string(html_buffer, capacity, "<li><details open><summary>");
             append_string(html_buffer, capacity, entry->d_name);
             append_string(html_buffer, capacity, "</summary>");
             
@@ -216,7 +206,7 @@ static char* generate_index_html() {
         return NULL;
     }
 
-        char *final_html = str_replace(template_content, "{{FILE_LIST}}", html_buffer);
+    char *final_html = str_replace(template_content, "{{FILE_LIST}}", html_buffer);
     free(template_content);
     free(html_buffer);
 
