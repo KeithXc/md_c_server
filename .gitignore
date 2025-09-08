@@ -3,3 +3,8 @@ bin/
 tmp/
 *.tar.gz
 md/
+# Cache directory
+cache/
+
+# PID file
+server.pid

@@ -19,4 +19,5 @@ add_executable(${EXEC_NAME} ${SOURCE_FILES})
 
 # Find and link required libraries
 find_package(Threads REQUIRED)
-target_link_libraries(${EXEC_NAME} PRIVATE cmark rt ${CMAKE_THREAD_LIibs_INIT})
+find_package(ZLIB REQUIRED)
+target_link_libraries(${EXEC_NAME} PRIVATE cmark rt ${CMAKE_THREAD_LIibs_INIT} ${ZLIB_LIBRARIES})
