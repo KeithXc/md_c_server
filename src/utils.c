@@ -49,6 +49,9 @@ char* read_file_content(const char *path, size_t *size) {
     return buffer;
 }
 
+#include <sys/stat.h>
+#include <dirent.h>
+
 // Helper function to replace a substring in a string
 char* str_replace(const char *orig, const char *rep, const char *with) {
     char *result; 
@@ -85,30 +88,46 @@ char* str_replace(const char *orig, const char *rep, const char *with) {
     return result;
 }
 
-// Converts a 64-bit unsigned integer to a string.
-void u64_to_str(unsigned long long n, char *out_buf) {
-    char *p = out_buf;
-    if (n == 0) {
-        *p++ = '0';
-        *p = '\0';
-        return;
+// Recursively finds the most recent modification time of any file or directory
+// within the given base_path.
+time_t get_latest_mtime_in_dir(const char *base_path) {
+    time_t latest_mtime = 0;
+    DIR *dir;
+    struct dirent *entry;
+    struct stat st;
+    char path[PATH_MAX];
+
+    if (!(dir = opendir(base_path))) {
+        return 0; // Return 0 if directory cannot be opened
     }
 
-    // Extract digits in reverse order
-    while (n > 0) {
-        *p++ = (n % 10) + '0';
-        n /= 10;
+    // Get mtime of the directory itself
+    if (stat(base_path, &st) == 0) {
+        latest_mtime = st.st_mtime;
     }
-    *p = '\0';
 
-    // Reverse the string
-    char *start = out_buf;
-    char *end = p - 1;
-    while (start < end) {
-        char temp = *start;
-        *start = *end;
-        *end = temp;
-        start++;
-        end--;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        snprintf(path, sizeof(path), "%s/%s", base_path, entry->d_name);
+        if (stat(path, &st) != 0) {
+            continue;
+        }
+
+        if (st.st_mtime > latest_mtime) {
+            latest_mtime = st.st_mtime;
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            time_t subdir_mtime = get_latest_mtime_in_dir(path);
+            if (subdir_mtime > latest_mtime) {
+                latest_mtime = subdir_mtime;
+            }
+        }
     }
+    closedir(dir);
+    return latest_mtime;
 }
+

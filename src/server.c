@@ -17,7 +17,7 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 
     // Route the request based on the URL
     if (mg_strcmp(hm->uri, mg_str("/")) == 0) {
-      serve_index(c); // Handle the index page
+      serve_index(c, hm); // Handle the index page
     } else if (strncmp(hm->uri.buf, "/post/", 6) == 0) {
       serve_post(c, hm); // Handle post pages
     } else if (strncmp(hm->uri.buf, "/static/", 8) == 0) {

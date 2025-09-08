@@ -5,24 +5,20 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <time.h>
 #include <zlib.h>
 #include <limits.h>
 #include <errno.h>
 
-#define CHUNK 16384 // zlib chunk size
-
-// Forward declarations for internal functions
-static long get_mtime(const char *path);
+// Forward declarations
+static time_t get_mtime(const char *path);
 static char* gzip_compress(const char *data, size_t data_len, size_t *compressed_size);
 static void ensure_cache_dir_exists();
 
-// Main cache function implementation
-char* get_cached_or_generate(const char *source_path, size_t *compressed_size, content_generator_t generator) {
+CacheResult get_cached_or_generate(const char *source_path, content_generator_t generator) {
+    CacheResult result = { .content = NULL, .size = 0, .etag = NULL, .last_modified = 0 };
     ensure_cache_dir_exists();
 
     char cache_path[PATH_MAX];
-    // Create a unique cache filename from the source path by replacing '/' with '_'
     char relative_source_path[PATH_MAX];
     if (strstr(source_path, g_project_root) == source_path) {
         snprintf(relative_source_path, sizeof(relative_source_path), "%s", source_path + strlen(g_project_root));
@@ -34,54 +30,65 @@ char* get_cached_or_generate(const char *source_path, size_t *compressed_size, c
     }
     snprintf(cache_path, sizeof(cache_path), "%s/cache/%s.gz", g_project_root, relative_source_path);
 
-    long source_mtime = get_mtime(source_path);
-    long cache_mtime = get_mtime(cache_path);
-
+    time_t source_mtime = get_mtime(source_path);
     if (source_mtime == -1) {
         fprintf(stderr, "Error: Cannot get modification time for source file %s\n", source_path);
-        return NULL; // Source file not found or error
+        return result;
+    }
+    result.last_modified = source_mtime;
+
+    char etag_buffer[64];
+    snprintf(etag_buffer, sizeof(etag_buffer), "\"%lx\"", (unsigned long)source_mtime);
+    result.etag = strdup(etag_buffer);
+    if (!result.etag) {
+        return result;
     }
 
-    // If cache is fresh, read from it
+    time_t cache_mtime = get_mtime(cache_path);
+
     if (cache_mtime != -1 && cache_mtime >= source_mtime) {
-        char *cached_content = read_file_content(cache_path, compressed_size);
+        size_t cached_size;
+        char *cached_content = read_file_content(cache_path, &cached_size);
         if (cached_content) {
-            return cached_content;
+            result.content = cached_content;
+            result.size = cached_size;
+            return result;
         }
     }
 
-    // Cache is stale or doesn't exist, generate new content
     size_t content_size = 0;
     char *content = generator(source_path, &content_size);
     if (!content) {
-        fprintf(stderr, "Error: Content generator failed for %s\n", source_path);
-        return NULL;
+        free_cache_result(result);
+        result.etag = NULL;
+        return result;
     }
 
-    // Compress the new content
-    char *compressed_content = gzip_compress(content, content_size, compressed_size);
-    free(content); // free uncompressed content
+    size_t compressed_size = 0;
+    char *compressed_content = gzip_compress(content, content_size, &compressed_size);
+    free(content);
 
     if (!compressed_content) {
-        fprintf(stderr, "Error: Gzip compression failed for %s\n", source_path);
-        return NULL;
+        free_cache_result(result);
+        result.etag = NULL;
+        return result;
     }
 
-    // Write the compressed content to the cache file
     FILE *fp = fopen(cache_path, "wb");
     if (fp) {
-        fwrite(compressed_content, 1, *compressed_size, fp);
+        fwrite(compressed_content, 1, compressed_size, fp);
         fclose(fp);
-    } else {
-        fprintf(stderr, "Error: Could not write to cache file %s\n", cache_path);
-        // We can still serve the content, just couldn't cache it
     }
 
-    return compressed_content;
+    result.content = compressed_content;
+    result.size = compressed_size;
+    return result;
 }
 
-
-// --- Internal Helper Functions ---
+void free_cache_result(CacheResult result) {
+    if (result.content) free(result.content);
+    if (result.etag) free(result.etag);
+}
 
 static void ensure_cache_dir_exists() {
     char cache_dir_path[PATH_MAX];
@@ -92,7 +99,7 @@ static void ensure_cache_dir_exists() {
     }
 }
 
-static long get_mtime(const char *path) {
+static time_t get_mtime(const char *path) {
     struct stat st;
     if (stat(path, &st) == 0) {
         return st.st_mtime;
@@ -101,17 +108,15 @@ static long get_mtime(const char *path) {
 }
 
 static char* gzip_compress(const char *data, size_t data_len, size_t *compressed_size) {
-    z_stream strm;
+    z_stream strm = {0};
     strm.zalloc = Z_NULL;
     strm.zfree = Z_NULL;
     strm.opaque = Z_NULL;
-
-    // + 12 for header, + 0.1% for overhead, + 5 for footer
+    
     size_t buffer_size = data_len + 12 + (data_len / 1000) + 5;
     unsigned char *out_buffer = malloc(buffer_size);
     if (!out_buffer) return NULL;
 
-    // Use GZIP encoding
     if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
         free(out_buffer);
         return NULL;
@@ -122,8 +127,7 @@ static char* gzip_compress(const char *data, size_t data_len, size_t *compressed
     strm.next_out = out_buffer;
     strm.avail_out = buffer_size;
 
-    int ret = deflate(&strm, Z_FINISH);
-    if (ret != Z_STREAM_END) {
+    if (deflate(&strm, Z_FINISH) != Z_STREAM_END) {
         deflateEnd(&strm);
         free(out_buffer);
         return NULL;

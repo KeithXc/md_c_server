@@ -59,15 +59,22 @@ We previously debugged an issue where browser tabs would spin indefinitely.
 
 ### Example 2: The Phantom `Content-Length: %zu` Bug
 
-More recently, we fixed a bug where `curl` and `wget` reported an `Invalid Content-Length` header, even though browsers could render the page.
+We fixed a bug where `curl` and `wget` reported an `Invalid Content-Length` header.
 
-1.  **Problem**: `curl` and `wget` showed the server was literally sending `Content-Length: %zu` instead of a number. Browsers worked fine due to their high fault tolerance (they ignored the bad header and relied on the connection closing).
-2.  **Initial Hypothesis**: The `mg_printf` function was not correctly formatting the `%zu` specifier for the `size_t` type.
-3.  **Debugging Rabbit Hole**: We spent a significant amount of time trying to fix this. We replaced `mg_printf` with a manual header construction using `snprintf` and later a custom integer-to-string function. However, **none of these code changes appeared to have any effect**, which seemed logically impossible.
-4.  **Root Cause Analysis**: The true problem was not the C code itself, but the **build and execution environment**. The original `stop.sh` script was unreliable and only killed the most recent server process, leaving numerous old, zombie processes running. We were sending our test requests to these old zombie processes, which were still running the original buggy code.
-5.  **Solution**:
-    a.  Killed all zombie processes using `pkill -f md_web_server`.
-    b.  Implemented a robust, manual header construction in `routes_post.c` that uses a custom `u64_to_str` function to avoid any `printf` family formatting issues.
-    c.  Made the `stop.sh` script robust by switching it to `pkill`.
-    d.  Modified `run.sh` to call `stop.sh` at the very beginning, ensuring a clean state for every run.
-6.  **Takeaway**: If code changes seem to have no effect, rigorously investigate the build, deployment, and execution process. Ensure you are actually running the code you just changed and that no old processes are still active.
+1.  **Problem**: `curl` and `wget` showed the server was literally sending `Content-Length: %zu`.
+2.  **Root Cause**: The issue was traced to unreliable server restarts, where old "zombie" processes were not being killed by the `stop.sh` script. We were sending test requests to old, buggy server instances.
+3.  **Solution**:
+    a.  Killed all zombie processes using `pkill`.
+    b.  Made the `stop.sh` script robust by switching it to `pkill`.
+    c.  Modified `run.sh` to call `stop.sh` at the beginning, ensuring a clean state for every run.
+4.  **Takeaway**: If code changes seem to have no effect, rigorously investigate the build and execution process.
+
+### Example 3: The Impossible Template Bug (Memory Corruption)
+
+We debugged a baffling issue where the homepage rendered with a raw `{{FILE_LIST}}` placeholder instead of the file tree.
+
+1.  **Problem**: The `str_replace` function was failing to replace the placeholder, even though `git diff` and `xxd` confirmed the placeholder strings in the C code and the HTML template were identical. The server was also crashing intermittently.
+2.  **Initial Hypothesis**: A bug in the file listing recursion or a subtle issue with the template file (e.g., hidden characters). These were ruled out by simplifying the code and inspecting the template's hex dump.
+3.  **Root Cause Analysis**: The illogical behavior of `strstr` failing pointed towards memory corruption. A detailed code review revealed a classic **off-by-one error** in the `append_string` helper function. The check `current_len + str_len >= *capacity` did not account for the final null terminator, allowing `strcat` to write one byte out of bounds. This corrupted the memory heap, which coincidentally damaged the `template_content` string before it could be used, causing `strstr` to fail.
+4.  **Solution**: The condition in `append_string` was corrected to `current_len + str_len + 1 > *capacity`. This resolved both the server crashes and the template replacement failure.
+5.  **Takeaway**: When a standard library function like `strstr` appears to fail for no logical reason, suspect memory corruption. Carefully review all manual memory management, buffer allocations (`realloc`), and string operations (`strcat`, `strcpy`) for potential off-by-one or buffer overflow errors.

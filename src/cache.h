@@ -3,37 +3,41 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <time.h>
+
+/**
+ * @brief A structure to hold the result of a cache retrieval or generation.
+ */
+typedef struct {
+    char *content;          // Pointer to the (compressed) content buffer
+    size_t size;            // Size of the content buffer
+    char *etag;             // A unique identifier for the content (e.g., based on timestamp)
+    time_t last_modified;   // The modification timestamp of the source file
+} CacheResult;
+
 
 /**
  * @brief A function pointer type for a function that generates content from a source file.
- *
- * @param source_path The path to the source file (e.g., a Markdown file).
- * @param content_size A pointer to a size_t variable to store the size of the generated content.
- * @return A dynamically allocated string containing the generated content, or NULL on failure.
- *         The caller is responsible for freeing this memory.
  */
 typedef char* (*content_generator_t)(const char *source_path, size_t *content_size);
 
 /**
- * @brief Retrieves a compressed file from the cache or generates and caches it if it's missing or stale.
+ * @brief Retrieves compressed content from cache or generates it if missing/stale.
  *
- * This function checks for a valid cached version of the content for the given source_path.
- * A cache is valid if the cached entry exists and the source file has not been modified since it was cached.
- *
- * If a valid cache is found, its compressed content is read and returned.
- * If not, the `generator` function is called to produce the fresh content, which is then
- * compressed using Gzip, saved to the cache, and the compressed content is returned.
- *
- * @param source_path The absolute path to the original source file (e.g., /path/to/file.md).
- * @param compressed_size A pointer to a size_t variable where the size of the returned compressed data will be stored.
- * @param generator A function pointer to the content generator to be called if the cache is invalid.
- * @return A dynamically allocated buffer containing the Gzip-compressed content. The caller is responsible for freeing this buffer.
- *         Returns NULL if any step (file reading, content generation, compression, memory allocation) fails.
+ * @param source_path The absolute path to the original source file.
+ * @param generator A function pointer to the content generator.
+ * @return A CacheResult struct. The pointers within the struct must be freed by the caller.
+ *         If an error occurs, the pointers in the returned struct will be NULL.
  */
-char* get_cached_or_generate(
+CacheResult get_cached_or_generate(
     const char *source_path,
-    size_t *compressed_size,
     content_generator_t generator
 );
+
+/**
+ * @brief Frees the memory allocated for a CacheResult's members.
+ */
+void free_cache_result(CacheResult result);
+
 
 #endif // CACHE_H

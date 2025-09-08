@@ -1,120 +1,224 @@
 #include "routes_index.h"
 #include "utils.h"
+#include "http_helpers.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
-#include <stdlib.h>
 #include <sys/stat.h>
+#include <zlib.h>
 
-// Helper struct for dynamic string buffer
-struct str_buffer {
-    char *str;
-    size_t len;
-    size_t capacity;
-};
+// Forward declaration
+static char* generate_index_html();
 
-// Function prototypes for static helpers
-static void str_buffer_init(struct str_buffer *buf);
-static void str_buffer_append(struct str_buffer *buf, const char *s);
-static void str_buffer_free(struct str_buffer *buf);
-static char* find_files_recursive_html(const char *base_path, const char *relative_path);
+// Serves the homepage with a collapsible file tree of the md/ directory.
+void serve_index(struct mg_connection *c, struct mg_http_message *hm) {
+    char md_dir_path[PATH_MAX];
+    snprintf(md_dir_path, sizeof(md_dir_path), "%s/md", g_project_root);
 
-// Serves an HTML page with a clickable list of all .md files
-void serve_index(struct mg_connection *c) {
+    // 1. Determine the "version" of the index by finding the latest modification time.
+    time_t latest_mtime = get_latest_mtime_in_dir(md_dir_path);
+    if (latest_mtime == 0) {
+        mg_http_reply(c, 200, "Content-Type: text/html; charset=utf-8\r\n", "<h1>No markdown files found.</h1>");
+        return;
+    }
+
+    // 2. Generate ETag from the latest modification time.
+    char etag[64];
+    snprintf(etag, sizeof(etag), "\"%lx\"", (unsigned long)latest_mtime);
+
+    // 3. Handle conditional requests. If a 304 is sent, we're done.
+    if (handle_conditional_request(c, hm, etag, latest_mtime)) {
+        return;
+    }
+
+    // 4. Check for a cached version of the index.
+    char cache_path[PATH_MAX];
+    snprintf(cache_path, sizeof(cache_path), "%s/cache/__index.html.gz", g_project_root);
+    
+    struct stat st;
+    if (stat(cache_path, &st) == 0 && st.st_mtime >= latest_mtime) {
+        // Cache is fresh, serve it directly.
+        size_t compressed_size;
+        char *compressed_content = read_file_content(cache_path, &compressed_size);
+        if (compressed_content) {
+            char last_modified_str[100];
+            struct tm *tm = gmtime(&latest_mtime);
+            strftime(last_modified_str, sizeof(last_modified_str), "%a, %d %b %Y %H:%M:%S GMT", tm);
+
+            char headers[512];
+            snprintf(headers, sizeof(headers),
+                     "HTTP/1.1 200 OK\r\n"
+                     "Content-Type: text/html; charset=utf-8\r\n"
+                     "Content-Encoding: gzip\r\n"
+                     "ETag: %s\r\n"
+                     "Last-Modified: %s\r\n"
+                     "Content-Length: %zu\r\n"
+                     "\r\n",
+                     etag, last_modified_str, compressed_size);
+            
+            mg_send(c, headers, strlen(headers));
+            mg_send(c, compressed_content, compressed_size);
+            c->is_draining = 1;
+            free(compressed_content);
+            return;
+        }
+    }
+
+    // 5. Cache is stale or missing. Regenerate, compress, cache, and serve.
+    char *html_content = generate_index_html();
+    if (!html_content) {
+        mg_http_reply(c, 500, "", "Failed to generate index.");
+        return;
+    }
+
+    // Compress it
+    z_stream strm = {0};
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY);
+    
+    size_t html_len = strlen(html_content);
+    size_t compressed_capacity = deflateBound(&strm, html_len);
+    char *compressed_content = malloc(compressed_capacity);
+
+    strm.avail_in = html_len;
+    strm.next_in = (Bytef *)html_content;
+    strm.avail_out = compressed_capacity;
+    strm.next_out = (Bytef *)compressed_content;
+
+    deflate(&strm, Z_FINISH);
+    size_t compressed_size = strm.total_out;
+    deflateEnd(&strm);
+    free(html_content);
+
+    // Save to cache
+    FILE *fp = fopen(cache_path, "wb");
+    if (fp) {
+        fwrite(compressed_content, 1, compressed_size, fp);
+        fclose(fp);
+    }
+
+    // Serve it
+    char last_modified_str[100];
+    struct tm *tm = gmtime(&latest_mtime);
+    strftime(last_modified_str, sizeof(last_modified_str), "%a, %d %b %Y %H:%M:%S GMT", tm);
+
+    char headers[512];
+    snprintf(headers, sizeof(headers),
+             "HTTP/1.1 200 OK\r\n"
+             "Content-Type: text/html; charset=utf-8\r\n"
+             "Content-Encoding: gzip\r\n"
+             "ETag: %s\r\n"
+             "Last-Modified: %s\r\n"
+             "Content-Length: %zu\r\n"
+             "\r\n",
+             etag, last_modified_str, compressed_size);
+
+    mg_send(c, headers, strlen(headers));
+    mg_send(c, compressed_content, compressed_size);
+    c->is_draining = 1;
+    free(compressed_content);
+}
+
+
+// --- Private helper functions for HTML generation ---
+
+static void append_string(char **buffer, size_t *capacity, const char *str) {
+    size_t current_len = strlen(*buffer);
+    size_t str_len = strlen(str);
+    // Corrected condition: check if we have enough space for the new string AND the null terminator.
+    while (current_len + str_len + 1 > *capacity) {
+        *capacity *= 2;
+        *buffer = realloc(*buffer, *capacity);
+    }
+    strcat(*buffer, str);
+}
+
+static void list_files_recursive(const char *base_path, const char *rel_path, char **html_buffer, size_t *capacity) {
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s%s", base_path, rel_path);
+
+    DIR *dir = opendir(path);
+    if (!dir) return;
+
+    struct dirent **namelist;
+    int n = scandir(path, &namelist, NULL, alphasort);
+    if (n < 0) {
+        closedir(dir);
+        return;
+    }
+
+    append_string(html_buffer, capacity, "<ul>");
+
+    for (int i = 0; i < n; i++) {
+        struct dirent *entry = namelist[i];
+        if (entry->d_name[0] == '.') {
+            free(entry);
+            continue;
+        }
+
+        char full_rel_path[PATH_MAX];
+        snprintf(full_rel_path, sizeof(full_rel_path), "%s%s", rel_path, entry->d_name);
+
+        char entry_full_path[PATH_MAX];
+        snprintf(entry_full_path, sizeof(entry_full_path), "%s/%s", path, entry->d_name);
+        
+        struct stat st;
+        if (stat(entry_full_path, &st) != 0) {
+            free(entry);
+            continue;
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            append_string(html_buffer, capacity, "<li><details><summary>");
+            append_string(html_buffer, capacity, entry->d_name);
+            append_string(html_buffer, capacity, "</summary>");
+            
+            char next_rel_path[PATH_MAX];
+            snprintf(next_rel_path, sizeof(next_rel_path), "%s/", full_rel_path);
+            list_files_recursive(base_path, next_rel_path, html_buffer, capacity);
+            
+            append_string(html_buffer, capacity, "</details></li>");
+        } else {
+            const char *ext = strrchr(entry->d_name, '.');
+            if (ext && strcmp(ext, ".md") == 0) {
+                append_string(html_buffer, capacity, "<li><a href=\"/post/");
+                append_string(html_buffer, capacity, full_rel_path);
+                append_string(html_buffer, capacity, "\"> ");
+                append_string(html_buffer, capacity, entry->d_name);
+                append_string(html_buffer, capacity, "</a></li>");
+            }
+        }
+        free(entry);
+    }
+    free(namelist);
+    closedir(dir);
+    append_string(html_buffer, capacity, "</ul>");
+}
+
+static char* generate_index_html() {
+    size_t capacity = 4096;
+    char *html_buffer = malloc(capacity);
+    strcpy(html_buffer, "");
+
+    char md_dir_path[PATH_MAX];
+    snprintf(md_dir_path, sizeof(md_dir_path), "%s/md", g_project_root);
+    list_files_recursive(md_dir_path, "/", &html_buffer, &capacity);
+
     size_t template_size;
     char template_path[PATH_MAX];
     snprintf(template_path, sizeof(template_path), "%s/templates/index.html", g_project_root);
     char *template_content = read_file_content(template_path, &template_size);
-    if (template_content == NULL) {
-        mg_http_reply(c, 500, "Content-Type: text/plain; charset=utf-8\r\n", "Internal Server Error: Could not read index template\n");
-        return;
+    if (!template_content) {
+        free(html_buffer);
+        return NULL;
     }
 
-    char md_dir_path[PATH_MAX];
-    snprintf(md_dir_path, sizeof(md_dir_path), "%s/md", g_project_root);
-    char *file_list_html = find_files_recursive_html(md_dir_path, "");
-    if (file_list_html == NULL) {
-        free(template_content);
-        mg_http_reply(c, 500, "Content-Type: text/plain; charset=utf-8\r\n", "Internal Server Error: Could not generate file list\n");
-        return;
-    }
-
-    char *final_html = str_replace(template_content, "{{FILE_LIST}}", file_list_html);
-
-    mg_http_reply(c, 200, "Content-Type: text/html; charset=utf-8\r\n", "%s", final_html);
-
+        char *final_html = str_replace(template_content, "{{FILE_LIST}}", html_buffer);
     free(template_content);
-    free(file_list_html);
-    free(final_html);
-}
+    free(html_buffer);
 
-// Initialize a string buffer
-static void str_buffer_init(struct str_buffer *buf) {
-    buf->len = 0;
-    buf->capacity = 1024; // Initial capacity
-    buf->str = (char *) malloc(buf->capacity);
-    buf->str[0] = '\0';
-}
-
-// Append a string to the buffer, reallocating if necessary
-static void str_buffer_append(struct str_buffer *buf, const char *s) {
-    size_t s_len = strlen(s);
-    if (buf->len + s_len + 1 > buf->capacity) {
-        buf->capacity = (buf->len + s_len + 1) * 2;
-        buf->str = (char *) realloc(buf->str, buf->capacity);
-    }
-    strcat(buf->str, s);
-    buf->len += s_len;
-}
-
-// Free the string buffer
-static void str_buffer_free(struct str_buffer *buf) {
-    free(buf->str);
-}
-
-// Recursively finds .md files and builds an HTML list string
-static char* find_files_recursive_html(const char *base_path, const char *relative_path) {
-    struct str_buffer buf;
-    str_buffer_init(&buf);
-
-    char current_path[1024];
-    snprintf(current_path, sizeof(current_path), "%s/%s", base_path, relative_path);
-    
-    DIR *d = opendir(current_path);
-    if (d == NULL) return buf.str;
-
-    struct dirent *dir;
-    char temp_buffer[2048];
-
-    while ((dir = readdir(d)) != NULL) {
-        if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-
-        char file_path[1024];
-        snprintf(file_path, sizeof(file_path), "%s/%s", current_path, dir->d_name);
-
-        struct stat path_stat;
-        stat(file_path, &path_stat);
-
-        char next_relative_path[1024];
-        snprintf(next_relative_path, sizeof(next_relative_path), "%s%s", relative_path, dir->d_name);
-
-        if (S_ISDIR(path_stat.st_mode)) {
-            snprintf(temp_buffer, sizeof(temp_buffer), "<li class=\"tree-dir-li\"><span class=\"tree-dir\">%s</span><ul>", dir->d_name);
-            str_buffer_append(&buf, temp_buffer);
-
-            char new_relative_for_recursion[1024];
-            snprintf(new_relative_for_recursion, sizeof(new_relative_for_recursion), "%s/", next_relative_path); 
-            
-            char *subdir_html = find_files_recursive_html(base_path, new_relative_for_recursion);
-            str_buffer_append(&buf, subdir_html);
-            free(subdir_html);
-
-            str_buffer_append(&buf, "</ul></li>");
-        } else if (strstr(dir->d_name, ".md") != NULL) {
-            snprintf(temp_buffer, sizeof(temp_buffer), "<li class=\"tree-file\"><a href=\"/post/%s\">%s</a></li>", next_relative_path, dir->d_name);
-            str_buffer_append(&buf, temp_buffer);
-        }
-    }
-    closedir(d);
-    return buf.str;
+    return final_html;
 }

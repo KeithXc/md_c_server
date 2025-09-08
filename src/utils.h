@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <limits.h> // For PATH_MAX
+#include <time.h>   // For time_t
 
 // Declare g_project_root as an external variable
 // It is defined in server.c
@@ -13,6 +14,7 @@ void get_project_root(char *out, size_t size);
 
 char* read_file_content(const char *path, size_t *size);
 char* str_replace(const char *orig, const char *rep, const char *with);
-void u64_to_str(unsigned long long n, char *out_buf);
+time_t get_latest_mtime_in_dir(const char *base_path);
+
 
 #endif // UTILS_H
