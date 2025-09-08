@@ -3,8 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "cmark.h"
 
-// Serves a markdown file by injecting it into a template
+// Serves a markdown file by converting it to HTML and injecting it into a template
 void serve_post(struct mg_connection *c, struct mg_http_message *hm) {
     char md_path[PATH_MAX];
     // The URI is like "/post/subdir/file.md", we need "subdir/file.md"
@@ -30,21 +31,31 @@ void serve_post(struct mg_connection *c, struct mg_http_message *hm) {
         return;
     }
 
+    // Convert Markdown to HTML using cmark
+    char *html_content = cmark_markdown_to_html(md_content, md_size, 0);
+    if (html_content == NULL) {
+        free(md_content);
+        mg_http_reply(c, 500, "Content-Type: text/plain; charset=utf-8\r\n", "Internal Server Error: Markdown to HTML conversion failed\n");
+        return;
+    }
+
     size_t template_size;
     char template_path[PATH_MAX];
     snprintf(template_path, sizeof(template_path), "%s/templates/post.html", g_project_root);
     char *template_content = read_file_content(template_path, &template_size);
     if (template_content == NULL) {
         free(md_content);
+        free(html_content);
         mg_http_reply(c, 500, "Content-Type: text/plain; charset=utf-8\r\n", "Internal Server Error: Could not read post template\n");
         return;
     }
 
-    char *final_html = str_replace(template_content, "{{POST_CONTENT}}", md_content);
+    char *final_html = str_replace(template_content, "{{POST_CONTENT}}", html_content);
 
     mg_http_reply(c, 200, "Content-Type: text/html; charset=utf-8\r\n", "%s", final_html);
 
     free(md_content);
+    free(html_content);
     free(template_content);
     free(final_html);
 }
