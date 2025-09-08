@@ -1,21 +1,18 @@
 #!/bin/bash
-# This script compiles and runs the server.
 
-set -e
+# Ensure any previous instances are stopped before starting.
+./stop.sh
 
-# Navigate to build directory, create it if it doesn't exist
-mkdir -p build
+# Build and run
+echo "Building project..."
 cd build
-
-# Generate Makefile and compile
-cmake ..
+cmake .. > /dev/null
 make
-
-# Navigate back to the project root
 cd ..
 
-# Run the server in the background and save its PID
+echo "" # Add a newline for cleaner output
 echo "Starting md_web_server..."
-./bin/md_web_server &
-echo $! > server.pid
-echo "Server started with PID: $(cat server.pid)"
+nohup ./bin/md_web_server > /dev/null 2>&1 &
+PID=$!
+echo $PID > server.pid
+echo "Server started with PID: $PID"

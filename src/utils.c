@@ -84,3 +84,31 @@ char* str_replace(const char *orig, const char *rep, const char *with) {
     strcpy(tmp, orig);
     return result;
 }
+
+// Converts a 64-bit unsigned integer to a string.
+void u64_to_str(unsigned long long n, char *out_buf) {
+    char *p = out_buf;
+    if (n == 0) {
+        *p++ = '0';
+        *p = '\0';
+        return;
+    }
+
+    // Extract digits in reverse order
+    while (n > 0) {
+        *p++ = (n % 10) + '0';
+        n /= 10;
+    }
+    *p = '\0';
+
+    // Reverse the string
+    char *start = out_buf;
+    char *end = p - 1;
+    while (start < end) {
+        char temp = *start;
+        *start = *end;
+        *end = temp;
+        start++;
+        end--;
+    }
+}

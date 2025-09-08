@@ -13,5 +13,6 @@ void get_project_root(char *out, size_t size);
 
 char* read_file_content(const char *path, size_t *size);
 char* str_replace(const char *orig, const char *rep, const char *with);
+void u64_to_str(unsigned long long n, char *out_buf);
 
 #endif // UTILS_H

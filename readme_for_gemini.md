@@ -46,13 +46,28 @@ Use the provided shell scripts:
 
 The server will be accessible at `http://localhost:8000`.
 
-## 6. Gemini's Debugging Workflow Example
+## 6. Gemini's Debugging Workflow Examples
 
-We recently debugged an issue where browser tabs would spin indefinitely after loading a Markdown page. This serves as a record of the successful diagnostic process.
+### Example 1: The Double `Content-Length` Header
 
-1.  **Problem**: User reported that the browser tab was stuck in a loading state.
-2.  **Hypothesis**: The initial guess was an issue with HTTP headers, specifically `Content-Length`, or improper connection handling by the server.
-3.  **Verification Tool**: The key to solving this was using `curl` with the verbose flag: `curl -v http://localhost:8000/post/some_file.md`. Relying only on browser developer tools was insufficient.
-4.  **Analysis**: The `curl` output clearly showed the server was sending **two** `Content-Length` headers in its response. This was caused by an incorrect use of the `mg_http_reply` function, which automatically added a `Content-Length: 0` header for an empty body, conflicting with the one we added manually to the headers string.
-5.  **Solution**: The correct fix was to stop using `mg_http_reply` for this specific case. Instead, we manually constructed the entire header block (including the correct `Content-Length`) as a single string and sent it using `mg_printf`. Crucially, we then set the `c->is_draining = 1` flag on the connection. This tells Mongoose to close the connection gracefully after the response is fully sent, resolving the browser's waiting state.
-6.  **Takeaway**: When dealing with low-level HTTP responses, always verify the exact output with a tool like `curl -v`. It provides unambiguous insight into the raw server response.
+We previously debugged an issue where browser tabs would spin indefinitely.
+
+1.  **Problem**: Browser tab stuck in a loading state.
+2.  **Verification**: `curl -v` showed the server was sending **two** `Content-Length` headers. This was caused by misusing `mg_http_reply`.
+3.  **Solution**: We switched to manually constructing the header block and sending it with `mg_printf`, then setting `c->is_draining = 1` to gracefully close the connection.
+4.  **Takeaway**: `curl -v` is invaluable for inspecting raw server responses.
+
+### Example 2: The Phantom `Content-Length: %zu` Bug
+
+More recently, we fixed a bug where `curl` and `wget` reported an `Invalid Content-Length` header, even though browsers could render the page.
+
+1.  **Problem**: `curl` and `wget` showed the server was literally sending `Content-Length: %zu` instead of a number. Browsers worked fine due to their high fault tolerance (they ignored the bad header and relied on the connection closing).
+2.  **Initial Hypothesis**: The `mg_printf` function was not correctly formatting the `%zu` specifier for the `size_t` type.
+3.  **Debugging Rabbit Hole**: We spent a significant amount of time trying to fix this. We replaced `mg_printf` with a manual header construction using `snprintf` and later a custom integer-to-string function. However, **none of these code changes appeared to have any effect**, which seemed logically impossible.
+4.  **Root Cause Analysis**: The true problem was not the C code itself, but the **build and execution environment**. The original `stop.sh` script was unreliable and only killed the most recent server process, leaving numerous old, zombie processes running. We were sending our test requests to these old zombie processes, which were still running the original buggy code.
+5.  **Solution**:
+    a.  Killed all zombie processes using `pkill -f md_web_server`.
+    b.  Implemented a robust, manual header construction in `routes_post.c` that uses a custom `u64_to_str` function to avoid any `printf` family formatting issues.
+    c.  Made the `stop.sh` script robust by switching it to `pkill`.
+    d.  Modified `run.sh` to call `stop.sh` at the very beginning, ensuring a clean state for every run.
+6.  **Takeaway**: If code changes seem to have no effect, rigorously investigate the build, deployment, and execution process. Ensure you are actually running the code you just changed and that no old processes are still active.

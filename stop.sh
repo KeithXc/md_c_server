@@ -1,19 +1,19 @@
 #!/bin/bash
-# This script stops the server.
+# This script stops all instances of the md_web_server.
 
+SERVER_NAME="md_web_server"
 PID_FILE="server.pid"
 
-if [ -f "$PID_FILE" ]; then
-    PID=$(cat "$PID_FILE")
-    echo "Stopping server with PID: $PID"
-    # Use kill to terminate the process
-    if kill $PID > /dev/null 2>&1; then
-        echo "Server stopped."
-    else
-        echo "Failed to stop server. It may not be running."
-    fi
-    # Clean up the PID file
-    rm "$PID_FILE"
+echo "Stopping all '$SERVER_NAME' processes..."
+# Use pkill to find and kill all processes with the server name.
+# The -f flag matches against the full command line.
+if pkill -f "$SERVER_NAME"; then
+    echo "Server process(es) terminated."
 else
-    echo "Server PID file not found. Is the server running?"
+    echo "No running server process found."
+fi
+
+# Clean up the PID file if it exists
+if [ -f "$PID_FILE" ]; then
+    rm "$PID_FILE"
 fi

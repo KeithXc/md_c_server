@@ -75,14 +75,19 @@ void serve_post(struct mg_connection *c, struct mg_http_message *hm) {
         return;
     }
 
-    // Serve the compressed content with the correct headers
-    mg_printf(c,
-              "HTTP/1.1 200 OK\r\n"
-              "Content-Type: text/html; charset=utf-8\r\n"
-              "Content-Encoding: gzip\r\n"
-              "Content-Length: %zu\r\n"
-              "\r\n",
-              compressed_size);
+    // Manually build the headers using our own itoa and strcat.
+    char size_str[21]; // Max length for a 64-bit unsigned integer + null terminator
+    u64_to_str(compressed_size, size_str);
+
+    char headers[512];
+    strcpy(headers, "HTTP/1.1 200 OK\r\n");
+    strcat(headers, "Content-Type: text/html; charset=utf-8\r\n");
+    strcat(headers, "Content-Encoding: gzip\r\n");
+    strcat(headers, "Content-Length: ");
+    strcat(headers, size_str);
+    strcat(headers, "\r\n\r\n");
+
+    mg_send(c, headers, strlen(headers));
     mg_send(c, compressed_content, compressed_size);
 
     // Mark the connection to be closed after the reply is sent.
