@@ -20,4 +20,19 @@ add_executable(${EXEC_NAME} ${SOURCE_FILES})
 # Find and link required libraries
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
-target_link_libraries(${EXEC_NAME} PRIVATE cmark rt ${CMAKE_THREAD_LIBS_INIT} ${ZLIB_LIBRARIES})
+
+include(FetchContent)
+FetchContent_Declare(
+    cmark
+    GIT_REPOSITORY https://github.com/commonmark/cmark.git
+    GIT_TAG        0.30.2  # Use a specific tag for stability
+)
+FetchContent_MakeAvailable(cmark)
+
+if (TARGET libcmark)
+    target_link_libraries(${EXEC_NAME} PRIVATE libcmark ${CMAKE_THREAD_LIBS_INIT} ${ZLIB_LIBRARIES})
+elseif (TARGET cmark::cmark)
+    target_link_libraries(${EXEC_NAME} PRIVATE cmark::cmark ${CMAKE_THREAD_LIBS_INIT} ${ZLIB_LIBRARIES})
+else()
+    target_link_libraries(${EXEC_NAME} PRIVATE cmark ${CMAKE_THREAD_LIBS_INIT} ${ZLIB_LIBRARIES})
+endif()

@@ -86,3 +86,19 @@ We debugged a baffling issue where the homepage rendered with a raw `{{FILE_LIST
 3.  **Root Cause Analysis**: The illogical behavior of `strstr` failing pointed towards memory corruption. A detailed code review revealed a classic **off-by-one error** in the `append_string` helper function. The check `current_len + str_len >= *capacity` did not account for the final null terminator, allowing `strcat` to write one byte out of bounds. This corrupted the memory heap, which coincidentally damaged the `template_content` string before it could be used, causing `strstr` to fail.
 4.  **Solution**: The condition in `append_string` was corrected to `current_len + str_len + 1 > *capacity`. This resolved both the server crashes and the template replacement failure.
 5.  **Takeaway**: When a standard library function like `strstr` appears to fail for no logical reason, suspect memory corruption. Carefully review all manual memory management, buffer allocations (`realloc`), and string operations (`strcat`, `strcpy`) for potential off-by-one or buffer overflow errors.
+
+### Example 4: The Missing `cmark` Dependency
+
+We encountered a build failure where `cmark.h` was not found.
+
+1.  **Problem**: The build failed with `fatal error: cmark.h: No such file or directory`.
+2.  **Root Cause**: The project assumed `cmark` was installed on the system, but it was missing.
+3.  **Solution**: We modified `CMakeLists.txt` to use CMake's `FetchContent` module. This automatically downloads and builds `cmark` (version 0.30.2) from GitHub during the build process, ensuring a self-contained and reproducible build environment.
+4.  **Takeaway**: Explicitly managing dependencies via `FetchContent` is more robust than relying on system-installed libraries.
+
+### Example 5: The Slow Rebuilds
+
+We noticed that `run.sh` was performing a full rebuild every time.
+
+1.  **Problem**: `run.sh` was running `make clean` on every execution, slowing down the development loop.
+2.  **Solution**: We optimized `run.sh` to remove the `make clean` step and only run `cmake` if the `Makefile` is missing. This enables incremental builds, significantly speeding up the restart process.

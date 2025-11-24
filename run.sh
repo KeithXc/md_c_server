@@ -3,20 +3,22 @@
 # Ensure any previous instances are stopped before starting.
 ./stop.sh
 
-# Clean up cache and previous build artifacts
-echo "Cleaning cache and build directories..."
+# Clean up cache (but keep build artifacts for incremental compilation)
+echo "Cleaning cache..."
 if [ -d "cache" ]; then
     rm -rf cache/*
 fi
-# A clean build ensures consistency
-cd build
-make clean > /dev/null
-cd ..
 
 # Build and run
 echo "Building project..."
+mkdir -p build
 cd build
-cmake .. > /dev/null
+
+# Run cmake if Makefile doesn't exist, otherwise let make handle re-configuration if needed
+if [ ! -f "Makefile" ]; then
+    cmake .. > /dev/null
+fi
+
 make
 cd ..
 
